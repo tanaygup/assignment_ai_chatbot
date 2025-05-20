@@ -5,44 +5,95 @@ import { useDropzone } from "react-dropzone";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { FileText, Send, Upload } from "lucide-react";
+import { extractTextFromPDF } from "@/lib/pdfUtils";
+import { chatWithPDF, summarizePDF } from "@/lib/gemini";
 
 export default function DashboardPage() {
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
+  const [pdfContent, setPdfContent] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   const { getRootProps, getInputProps } = useDropzone({
     accept: {
       "application/pdf": [".pdf"],
     },
     maxFiles: 1,
-    onDrop: (acceptedFiles) => {
-      setSelectedFile(acceptedFiles[0]);
+    onDrop: async (acceptedFiles) => {
+      try {
+        setIsLoading(true);
+        const file = acceptedFiles[0];
+        setSelectedFile(file);
+        
+        // Extract text from PDF
+        const text = await extractTextFromPDF(file);
+        setPdfContent(text);
+        
+        // Get initial summary
+        const summary = await summarizePDF(text);
+        
+        setMessages([
+          {
+            id: Date.now(),
+            content: `I've read your PDF "${file.name}". Here's a summary:\n\n${summary}`,
+            sender: "bot",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      } catch (error) {
+        console.error("Error processing PDF:", error);
+        setMessages([
+          {
+            id: Date.now(),
+            content: "Sorry, there was an error processing your PDF. Please try again.",
+            sender: "bot",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      } finally {
+        setIsLoading(false);
+      }
     },
   });
 
   const handleSendMessage = async () => {
-    if (!inputMessage.trim()) return;
+    if (!inputMessage.trim() || !pdfContent) return;
 
-    const newMessage = {
+    const userMessage = {
       id: Date.now(),
       content: inputMessage,
       sender: "user",
       timestamp: new Date().toISOString(),
     };
 
-    setMessages((prev) => [...prev, newMessage]);
+    setMessages((prev) => [...prev, userMessage]);
     setInputMessage("");
+    setIsLoading(true);
 
-    // TODO: Integrate with Gemini API
-    const botResponse = {
-      id: Date.now() + 1,
-      content: "This is a placeholder response. Gemini API integration pending.",
-      sender: "bot",
-      timestamp: new Date().toISOString(),
-    };
+    try {
+      const response = await chatWithPDF(inputMessage, pdfContent);
+      
+      const botMessage = {
+        id: Date.now() + 1,
+        content: response,
+        sender: "bot",
+        timestamp: new Date().toISOString(),
+      };
 
-    setMessages((prev) => [...prev, botResponse]);
+      setMessages((prev) => [...prev, botMessage]);
+    } catch (error) {
+      console.error("Error getting response:", error);
+      const errorMessage = {
+        id: Date.now() + 1,
+        content: "Sorry, I encountered an error. Please try again.",
+        sender: "bot",
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -57,7 +108,7 @@ export default function DashboardPage() {
             <input {...getInputProps()} />
             <Upload className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground">
-              Drag & drop a PDF file here, or click to select one
+              {isLoading ? "Processing PDF..." : "Drag & drop a PDF file here, or click to select one"}
             </p>
           </div>
           {selectedFile && (
@@ -81,7 +132,7 @@ export default function DashboardPage() {
                       : "bg-muted"
                   } max-w-[80%] ${message.sender === "user" ? "ml-auto" : ""}`}
                 >
-                  <p>{message.content}</p>
+                  <p className="whitespace-pre-wrap">{message.content}</p>
                   <span className="text-xs opacity-70">
                     {new Date(message.timestamp).toLocaleTimeString()}
                   </span>
@@ -111,7 +162,7 @@ export default function DashboardPage() {
                         : "bg-muted"
                     } max-w-[80%]`}
                   >
-                    <p>{message.content}</p>
+                    <p className="whitespace-pre-wrap">{message.content}</p>
                     <span className="text-xs opacity-70">
                       {new Date(message.timestamp).toLocaleTimeString()}
                     </span>
@@ -125,15 +176,16 @@ export default function DashboardPage() {
               type="text"
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
-              placeholder="Type your message..."
-              className="flex-1 px-4 py-2 rounded-md border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+              placeholder={pdfContent ? "Ask a question about your PDF..." : "Upload a PDF to start chatting..."}
+              disabled={!pdfContent || isLoading}
+              className="flex-1 px-4 py-2 rounded-md border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
               onKeyPress={(e) => {
-                if (e.key === "Enter") handleSendMessage();
+                if (e.key === "Enter" && !isLoading) handleSendMessage();
               }}
             />
-            <Button onClick={handleSendMessage}>
-              <Send className="h-4 w-4" />
-              Send
+            <Button onClick={handleSendMessage} disabled={!pdfContent || isLoading}>
+              <Send className="h-4 w-4 mr-2" />
+              {isLoading ? "Processing..." : "Send"}
             </Button>
           </div>
         </div>
