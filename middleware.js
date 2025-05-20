@@ -21,7 +21,7 @@ export async function middleware(req) {
   }
 
   if (session && isAuthPage) {
-    return NextResponse.redirect(new URL("/main/dashboard", req.url));
+    return NextResponse.redirect(new URL("/dashboard", req.url));
   }
 
   return res;
