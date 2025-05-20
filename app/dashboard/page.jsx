@@ -14,6 +14,7 @@ export default function DashboardPage() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [pdfContent, setPdfContent] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const { getRootProps, getInputProps } = useDropzone({
     accept: {
@@ -21,13 +22,17 @@ export default function DashboardPage() {
     },
     maxFiles: 1,
     onDrop: async (acceptedFiles) => {
+      setError(null);
+      setIsLoading(true);
       try {
-        setIsLoading(true);
         const file = acceptedFiles[0];
         setSelectedFile(file);
         
         // Extract text from PDF
         const text = await extractTextFromPDF(file);
+        if (!text || text.trim().length === 0) {
+          throw new Error("No text could be extracted from the PDF");
+        }
         setPdfContent(text);
         
         // Get initial summary
@@ -43,14 +48,17 @@ export default function DashboardPage() {
         ]);
       } catch (error) {
         console.error("Error processing PDF:", error);
+        setError(error.message);
         setMessages([
           {
             id: Date.now(),
-            content: "Sorry, there was an error processing your PDF. Please try again.",
+            content: "Sorry, there was an error processing your PDF. Please try uploading a different PDF file.",
             sender: "bot",
             timestamp: new Date().toISOString(),
           },
         ]);
+        setPdfContent("");
+        setSelectedFile(null);
       } finally {
         setIsLoading(false);
       }
@@ -103,12 +111,14 @@ export default function DashboardPage() {
           <h2 className="text-2xl font-bold mb-4">Upload PDF</h2>
           <div
             {...getRootProps()}
-            className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary/50 transition-colors cursor-pointer"
+            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+              error ? 'border-destructive/50 bg-destructive/10' : 'hover:border-primary/50'
+            }`}
           >
             <input {...getInputProps()} />
-            <Upload className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">
-              {isLoading ? "Processing PDF..." : "Drag & drop a PDF file here, or click to select one"}
+            <Upload className={`mx-auto h-12 w-12 mb-4 ${error ? 'text-destructive' : 'text-muted-foreground'}`} />
+            <p className={`${error ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {isLoading ? "Processing PDF..." : error || "Drag & drop a PDF file here, or click to select one"}
             </p>
           </div>
           {selectedFile && (
